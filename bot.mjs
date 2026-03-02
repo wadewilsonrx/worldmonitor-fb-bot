@@ -215,10 +215,16 @@ async function fetchWithRetry(url, options = {}, maxTries = 3) {
     throw lastErr;
 }
 
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+
 // ─── World Monitor API ────────────────────────────────────────────────────────
 async function fetchNewsDigest() {
     const url = `${WM_API_URL}/api/news/v1/list-feed-digest`;
-    const headers = { Accept: 'application/json', 'User-Agent': `WM-FB-Bot/${VERSION}` };
+    const headers = {
+        Accept: 'application/json',
+        'User-Agent': BROWSER_UA,
+        'X-WorldMonitor-Client': `Bot/${VERSION}` // Keep version info in a custom header
+    };
     if (WM_API_KEY) headers['X-WorldMonitor-Key'] = WM_API_KEY;
     const res = await fetchWithRetry(url, { headers });
     if (!res.ok) throw new Error(`WM API returned ${res.status}`);
@@ -291,7 +297,7 @@ async function fetchRssFallback() {
     await Promise.allSettled(RSS_FALLBACK_FEEDS.map(async (feed) => {
         try {
             const res = await fetchWithRetry(feed.url, {
-                headers: { 'User-Agent': `WM-FB-Bot/${VERSION}` },
+                headers: { 'User-Agent': BROWSER_UA },
             }, 2);
             if (!res.ok) return;
             const xml = await res.text();
@@ -308,7 +314,11 @@ async function fetchAISummary(headlines) {
     try {
         const res = await fetch(`${WM_API_URL}/api/news/v1/summarize-article`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'User-Agent': `WM-FB-Bot/${VERSION}` },
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent': BROWSER_UA,
+                'X-WorldMonitor-Key': WM_API_KEY || ''
+            },
             body: JSON.stringify({ headlines: headlines.slice(0, 3), provider: 'groq', mode: 'brief', variant: 'full', lang: 'en' }),
             signal: AbortSignal.timeout(12_000),
         });
