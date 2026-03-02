@@ -719,7 +719,6 @@ async function renderNewsCard(title, imageUrl) {
     const width = 1080;
     const height = 1080;
     const templatePath = join(__dirname, 'template.svg');
-    const redColor = '#e50000'; // Match your template red
 
     if (!existsSync(templatePath)) {
         throw new Error('template.svg missing.');
@@ -736,12 +735,14 @@ async function renderNewsCard(title, imageUrl) {
         articlePhoto = readFileSync(join(__dirname, 'logo.png'));
     }
 
+    // Grid coordinates constant (scaled 810 -> 1080)
     const gridX = Math.round(81.75 * 1.3333);
     const gridY = Math.round(130.86 * 1.3333);
     const gridW = Math.round(646.5 * 1.3333);
     const gridH = Math.round(375.5 * 1.3333);
     const cornerRadius = 40;
 
+    // Process article image with rounded corners
     const mask = Buffer.from(
         `<svg><rect x="0" y="0" width="${gridW}" height="${gridH}" rx="${cornerRadius}" ry="${cornerRadius}" /></svg>`
     );
@@ -752,45 +753,13 @@ async function renderNewsCard(title, imageUrl) {
         .png()
         .toBuffer();
 
-    // 2. Prepare the Headline (Wipe out old and draw new)
-    const textX = Math.round(155 * 1.3333);
-    const textY = Math.round(605 * 1.3333);
-    const textW = Math.round(500 * 1.3333);
-    const titleEscaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').toUpperCase();
-
-    // Helper: Split title into words and group into lines (approx 20 chars per line)
-    const words = titleEscaped.split(' ');
-    const lines = [];
-    let currentLine = '';
-    words.forEach(w => {
-        if ((currentLine + w).length > 22) {
-            lines.push(currentLine.trim());
-            currentLine = w + ' ';
-        } else {
-            currentLine += w + ' ';
-        }
-    });
-    lines.push(currentLine.trim());
-
-    // Create the overlay: Wipe Rect + Wrapped Text
-    const headlineOverlay = Buffer.from(`
-        <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-            <!-- WIPE LAYER: Hide the "Local Hero" placeholder -->
-            <rect x="${textX - 10}" y="${textY - 20}" width="${textW + 100}" height="300" fill="${redColor}" />
-            
-            <!-- DYNAMIC TEXT -->
-            <text x="${textX}" y="${textY + 40}" fill="white" font-family="sans-serif" font-weight="900" font-size="48px">
-                ${lines.slice(0, 3).map((line, i) => `<tspan x="${textX}" dy="${i === 0 ? 0 : 55}">${line}</tspan>`).join('')}
-            </text>
-        </svg>
-    `);
-
-    // 3. Final Composition
+    // 2. Final Composition
+    // We use the actual template.svg file as the base. 
+    // The user has handled the headline in the SVG itself or wants it static.
     return sharp(templatePath)
         .resize(width, height)
         .composite([
-            { input: processedImg, left: gridX, top: gridY },
-            { input: headlineOverlay, left: 0, top: 0 }
+            { input: processedImg, left: gridX, top: gridY }
         ])
         .png()
         .toBuffer();
