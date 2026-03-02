@@ -48,11 +48,12 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL || '';          // e.g. https://your-app.onrender.com/health
 const KEEP_ALIVE_MS = parseInt(process.env.KEEP_ALIVE_INTERVAL || '840000', 10); // 14 min
 const MAX_FB_PER_HOUR = parseInt(process.env.MAX_FB_CALLS_PER_HOUR || '180', 10);
+const MAX_ARTICLE_AGE_H = parseFloat(process.env.MAX_ARTICLE_AGE_HOURS || '4');   // Only post articles newer than this
 const DRY_RUN = process.env.DRY_RUN === 'true';
 const REGULAR_INTERVAL_MS = 15 * 60 * 1000;  // 15 min
 const GRAPH_API = 'https://graph.facebook.com/v19.0';
 const POSTED_FILE = join(__dirname, 'posted.json');
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 
 // ─── Runtime State ───────────────────────────────────────────────────────────
 const state = {
@@ -438,11 +439,23 @@ async function poll() {
 
     if (!items || items.length === 0) return;
 
-    const newItems = items.filter(i => i.title && !postedSet.has(makeItemId(i)));
+    // ── Age filter: drop anything older than MAX_ARTICLE_AGE_HOURS ──
+    const maxAgeMs = MAX_ARTICLE_AGE_H * 60 * 60 * 1000;
+    const cutoff = Date.now() - maxAgeMs;
+    const freshItems = items.filter(i => {
+        if (!i.pubDate) return true;  // no date = assume fresh
+        const pubMs = new Date(i.pubDate).getTime();
+        return !isNaN(pubMs) && pubMs >= cutoff;
+    });
+
+    const staleCount = items.length - freshItems.length;
+    if (staleCount > 0) log(`  ↳ Skipped ${staleCount} articles older than ${MAX_ARTICLE_AGE_H}h`);
+
+    const newItems = freshItems.filter(i => i.title && !postedSet.has(makeItemId(i)));
     const breakingList = newItems.filter(i => isBreaking(i));
     const regularList = newItems.filter(i => !isBreaking(i));
 
-    log(`  ↳ New: ${newItems.length} (🚨 ${breakingList.length} breaking, 📰 ${regularList.length} regular)`);
+    log(`  ↳ New & fresh: ${newItems.length} (🚨 ${breakingList.length} breaking, 📰 ${regularList.length} regular)`);
 
     // POST BREAKING IMMEDIATELY
     for (const item of breakingList) {
@@ -602,6 +615,44 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('uncaughtException', err => { log(`🔥 uncaughtException: ${err.message}`); state.errors++; state.lastError = err.message; });
 process.on('unhandledRejection', err => { log(`🔥 unhandledRejection: ${err?.message || err}`); state.errors++; state.lastError = String(err?.message || err); });
 
+// ─── Startup Seed (prevents re-posting on restart) ───────────────────────────
+// On first boot (or after Render wipes the ephemeral disk), posted.json is empty.
+// Without seeding, the bot would post every article currently in the feeds — many
+// of which are hours or days old. This function fetches all current articles once
+// and marks them as already-posted WITHOUT publishing anything to Facebook.
+// After this, only articles that appear for the FIRST TIME after startup get posted.
+async function seedPostedHistory() {
+    if (postedSet.size > 0) {
+        log(`🌱 Seed skipped — ${postedSet.size} items already in posted history`);
+        return;
+    }
+
+    log('🌱 Seeding posted history (marking existing articles as seen — will NOT post them)…');
+    try {
+        let items = [];
+        try {
+            items = await fetchNewsDigest();
+        } catch {
+            items = await fetchRssFallback().catch(() => []);
+        }
+
+        let seeded = 0;
+        for (const item of items) {
+            if (!item.title) continue;
+            const id = makeItemId(item);
+            if (!postedSet.has(id)) {
+                postedSet.add(id);
+                postedHistory.posted.push(id);
+                seeded++;
+            }
+        }
+        savePosted(postedHistory);
+        log(`🌱 Seeded ${seeded} existing articles — bot will only post NEW content from now on`);
+    } catch (err) {
+        log(`⚠️  Seed failed (non-fatal): ${err.message}`);
+    }
+}
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 async function start() {
     log('═══════════════════════════════════════════════════════');
@@ -612,6 +663,7 @@ async function start() {
     log(`  Batch interval: ${REGULAR_INTERVAL_MS / 60000} min`);
     log(`  Max per batch:  ${MAX_PER_BATCH}`);
     log(`  FB rate limit:  ${MAX_FB_PER_HOUR} calls/hr`);
+    log(`  Max article age: ${MAX_ARTICLE_AGE_H}h (older articles are skipped)`);
     log(`  Dry run:        ${DRY_RUN}`);
     log('═══════════════════════════════════════════════════════');
 
@@ -626,7 +678,12 @@ async function start() {
 
     log('\n🟢 Bot is LIVE — monitoring for breaking news…\n');
 
-    // First poll immediately
+    // ── Startup seed: mark ALL currently-available articles as seen ──
+    // This prevents re-posting old news after a restart (Render ephemeral disk).
+    // We fetch once, mark everything as seen WITHOUT posting, then start polling normally.
+    await seedPostedHistory();
+
+    // First real poll immediately
     await poll();
 
     // Then on interval
