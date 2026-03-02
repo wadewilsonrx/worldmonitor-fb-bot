@@ -1,0 +1,14 @@
+{
+  "name": "worldmonitor-fb-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Real-time World Monitor news → Facebook Page auto-poster",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node bot.mjs",
+    "dev": "node bot.mjs"
+  },
+  "dependencies": {}
+}
