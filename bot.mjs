@@ -646,7 +646,11 @@ async function seedPostedHistory() {
                 seeded++;
             }
         }
-        savePosted(postedHistory);
+        // Persist the seeded IDs (inline save — same logic as markPosted)
+        postedHistory.posted = postedHistory.posted.slice(-2000);
+        postedHistory.lastRun = new Date().toISOString();
+        try { writeFileSync(POSTED_FILE, JSON.stringify(postedHistory, null, 2)); }
+        catch (e) { log(`⚠️  Could not save seed state: ${e.message}`); }
         log(`🌱 Seeded ${seeded} existing articles — bot will only post NEW content from now on`);
     } catch (err) {
         log(`⚠️  Seed failed (non-fatal): ${err.message}`);
