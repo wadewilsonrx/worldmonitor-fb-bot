@@ -241,9 +241,12 @@ async function fetchNewsDigest() {
             if (!bucket || !Array.isArray(bucket.items)) continue;
 
             for (const raw of bucket.items) {
+                const link = raw.link || raw.url || '';
+                if (link.includes('news.google.com')) continue; // Skip Google News (no images)
+
                 items.push({
                     title: raw.title || '',
-                    link: raw.link || raw.url || '',
+                    link,
                     source: raw.source || raw.feedTitle || '',
                     pubDate: raw.publishedAt || raw.pubDate || '',
                     category: catName,
@@ -282,6 +285,8 @@ function parseRssItem(xml, fallback) {
     for (const block of itemBlocks.slice(0, 10)) {
         const title = (block.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i) || block.match(/<title>(.*?)<\/title>/i) || [])[1] || '';
         const link = (block.match(/<link>(.*?)<\/link>/i) || [])[1] || '';
+        if (link.includes('news.google.com')) continue;
+
         const pubDate = (block.match(/<pubDate>(.*?)<\/pubDate>/i) || [])[1] || '';
         const desc = (block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/i) || block.match(/<description>(.*?)<\/description>/i) || [])[1] || '';
         if (title) items.push({
