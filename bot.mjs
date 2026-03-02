@@ -461,9 +461,15 @@ async function publishItem(item, breaking) {
     const aiSummary = await fetchAISummary([item.title]);
     const postText = formatPost(item, aiSummary, breaking);
 
-    // STRICT TEMPLATE RULE: If no image or no Base URL, skip the post entirely
+    // If no image, try to scrape the article page for a meta-image
+    if (!item.image && item.link) {
+        log(`  🔍 No image in feed for "${item.title.slice(0, 40)}..." — trying Deep Scan...`);
+        item.image = await findImageOnPage(item.link);
+    }
+
+    // STRICT TEMPLATE RULE: If still no image or no Base URL, skip the post entirely
     if (!item.image || !BOT_BASE_URL) {
-        log(`  ⚠️  Skipping: No image or BOT_BASE_URL missing (required for template)`);
+        log(`  ⚠️  Skipping: Still no image after Deep Scan (required for template)`);
         return false;
     }
 
@@ -668,6 +674,30 @@ function startHealthServer() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function findImageOnPage(url) {
+    try {
+        const res = await fetchWithRetry(url, {
+            headers: { 'User-Agent': BROWSER_UA },
+            signal: AbortSignal.timeout(8000)
+        }, 1);
+        if (!res.ok) return null;
+        const html = await res.text();
+
+        // Look for common meta tags
+        const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+            html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+        if (ogMatch) return ogMatch[1];
+
+        const twitterMatch = html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+            html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+        if (twitterMatch) return twitterMatch[1];
+
+        return null;
+    } catch {
+        return null;
+    }
+}
 
 async function handleCardRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
