@@ -439,23 +439,16 @@ async function poll() {
 
     if (!items || items.length === 0) return;
 
-    // ── Age filter: drop anything older than MAX_ARTICLE_AGE_HOURS ──
-    const maxAgeMs = MAX_ARTICLE_AGE_H * 60 * 60 * 1000;
-    const cutoff = Date.now() - maxAgeMs;
-    const freshItems = items.filter(i => {
-        if (!i.pubDate) return true;  // no date = assume fresh
-        const pubMs = new Date(i.pubDate).getTime();
-        return !isNaN(pubMs) && pubMs >= cutoff;
-    });
-
-    const staleCount = items.length - freshItems.length;
-    if (staleCount > 0) log(`  ↳ Skipped ${staleCount} articles older than ${MAX_ARTICLE_AGE_H}h`);
-
-    const newItems = freshItems.filter(i => i.title && !postedSet.has(makeItemId(i)));
+    // ── NEW ARTICLE DETECTION ──
+    // We do NOT filter by pubDate — World Monitor shows "9 min ago" meaning it DETECTED
+    // the article 9 min ago, but the article's RSS pubDate may be hours old.
+    // The seeding system (run on startup) marks all currently-available articles as seen.
+    // So anything NOT in postedSet = genuinely new to the feed since the bot started = post it.
+    const newItems = items.filter(i => i.title && !postedSet.has(makeItemId(i)));
     const breakingList = newItems.filter(i => isBreaking(i));
     const regularList = newItems.filter(i => !isBreaking(i));
 
-    log(`  ↳ New & fresh: ${newItems.length} (🚨 ${breakingList.length} breaking, 📰 ${regularList.length} regular)`);
+    log(`  ↳ New items: ${newItems.length} (🚨 ${breakingList.length} breaking, 📰 ${regularList.length} regular)`);
 
     // ── POST BREAKING IMMEDIATELY (always) ──
     for (const item of breakingList) {
@@ -464,7 +457,6 @@ async function poll() {
     }
 
     // ── POST REGULAR IMMEDIATELY (capped at MAX_PER_BATCH per poll to avoid flooding) ──
-    // No more 15-min batch delay — every fresh article posts as soon as detected.
     if (regularList.length > 0) {
         const toPost = regularList.slice(0, MAX_PER_BATCH);
         log(`📦 Posting ${toPost.length} regular article${toPost.length > 1 ? 's' : ''} now`);
