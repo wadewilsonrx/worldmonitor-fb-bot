@@ -48,12 +48,12 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL || '';          // e.g. https://your-app.onrender.com/health
 const KEEP_ALIVE_MS = parseInt(process.env.KEEP_ALIVE_INTERVAL || '840000', 10); // 14 min
 const MAX_FB_PER_HOUR = parseInt(process.env.MAX_FB_CALLS_PER_HOUR || '180', 10);
-const MAX_ARTICLE_AGE_H = parseFloat(process.env.MAX_ARTICLE_AGE_HOURS || '4');   // Only post articles newer than this
+const MAX_ARTICLE_AGE_H = parseFloat(process.env.MAX_ARTICLE_AGE_HOURS || '0.5'); // 30 min — only post truly fresh news
 const DRY_RUN = process.env.DRY_RUN === 'true';
-const REGULAR_INTERVAL_MS = 15 * 60 * 1000;  // 15 min
+const REGULAR_INTERVAL_MS = 15 * 60 * 1000;  // kept for reference, no longer used for batching
 const GRAPH_API = 'https://graph.facebook.com/v19.0';
 const POSTED_FILE = join(__dirname, 'posted.json');
-const VERSION = '2.1.0';
+const VERSION = '2.2.0';
 
 // ─── Runtime State ───────────────────────────────────────────────────────────
 const state = {
@@ -457,21 +457,21 @@ async function poll() {
 
     log(`  ↳ New & fresh: ${newItems.length} (🚨 ${breakingList.length} breaking, 📰 ${regularList.length} regular)`);
 
-    // POST BREAKING IMMEDIATELY
+    // ── POST BREAKING IMMEDIATELY (always) ──
     for (const item of breakingList) {
         await publishItem(item, true);
         await sleep(2000);
     }
 
-    // POST REGULAR IN BATCH (every 15 min)
-    const sinceLastBatch = Date.now() - state.lastRegularAt;
-    if (regularList.length > 0 && sinceLastBatch >= REGULAR_INTERVAL_MS) {
-        log(`📦 Regular batch — posting up to ${MAX_PER_BATCH} of ${regularList.length} items`);
-        for (const item of regularList.slice(0, MAX_PER_BATCH)) {
+    // ── POST REGULAR IMMEDIATELY (capped at MAX_PER_BATCH per poll to avoid flooding) ──
+    // No more 15-min batch delay — every fresh article posts as soon as detected.
+    if (regularList.length > 0) {
+        const toPost = regularList.slice(0, MAX_PER_BATCH);
+        log(`📦 Posting ${toPost.length} regular article${toPost.length > 1 ? 's' : ''} now`);
+        for (const item of toPost) {
             await publishItem(item, false);
             await sleep(3000);
         }
-        state.lastRegularAt = Date.now();
     }
 }
 
@@ -667,7 +667,7 @@ async function start() {
     log(`  Batch interval: ${REGULAR_INTERVAL_MS / 60000} min`);
     log(`  Max per batch:  ${MAX_PER_BATCH}`);
     log(`  FB rate limit:  ${MAX_FB_PER_HOUR} calls/hr`);
-    log(`  Max article age: ${MAX_ARTICLE_AGE_H}h (older articles are skipped)`);
+    log(`  Max article age: ${MAX_ARTICLE_AGE_H * 60} min — older articles are skipped`);
     log(`  Dry run:        ${DRY_RUN}`);
     log('═══════════════════════════════════════════════════════');
 
