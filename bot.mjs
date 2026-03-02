@@ -223,31 +223,39 @@ async function fetchNewsDigest() {
     const headers = {
         Accept: 'application/json',
         'User-Agent': BROWSER_UA,
-        'X-WorldMonitor-Client': `Bot/${VERSION}` // Keep version info in a custom header
+        'X-WorldMonitor-Client': `Bot/${VERSION}`
     };
     if (WM_API_KEY) headers['X-WorldMonitor-Key'] = WM_API_KEY;
+
     const res = await fetchWithRetry(url, { headers });
     if (!res.ok) throw new Error(`WM API returned ${res.status}`);
+
     const data = await res.json();
     const items = [];
-    if (Array.isArray(data.categories)) {
-        for (const cat of data.categories) {
-            const catName = cat.name || cat.category || 'general';
-            for (const raw of (cat.items || [])) {
+
+    // API returns categories as an OBJECT: { "categoryName": { "items": [...] } }
+    if (data.categories && typeof data.categories === 'object' && !Array.isArray(data.categories)) {
+        for (const [catName, bucket] of Object.entries(data.categories)) {
+            if (!bucket || !Array.isArray(bucket.items)) continue;
+
+            for (const raw of bucket.items) {
                 items.push({
                     title: raw.title || '',
                     link: raw.link || raw.url || '',
                     source: raw.source || raw.feedTitle || '',
-                    pubDate: raw.pubDate || raw.publishedAt || '',
+                    pubDate: raw.publishedAt || raw.pubDate || '',
                     category: catName,
                     description: raw.description || raw.summary || '',
                 });
             }
         }
     }
-    return items.sort((a, b) =>
-        new Date(b.pubDate || 0) - new Date(a.pubDate || 0)
-    );
+
+    return items.sort((a, b) => {
+        const dateA = new Date(a.pubDate || 0).getTime();
+        const dateB = new Date(b.pubDate || 0).getTime();
+        return dateB - dateA;
+    });
 }
 
 // ─── RSS Fallback Feeds ────────────────────────────────────────────────────────
