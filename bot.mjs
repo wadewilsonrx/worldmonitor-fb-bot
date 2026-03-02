@@ -441,16 +441,16 @@ async function publishItem(item, breaking) {
     const aiSummary = await fetchAISummary([item.title]);
     const postText = formatPost(item, aiSummary, breaking);
 
+    // STRICT TEMPLATE RULE: If no image or no Base URL, skip the post entirely
+    if (!item.image || !BOT_BASE_URL) {
+        log(`  ⚠️  Skipping: No image or BOT_BASE_URL missing (required for template)`);
+        return false;
+    }
+
     try {
-        let fbId;
-        if (item.image && BOT_BASE_URL) {
-            // Use the dynamic card generator if we have a source image
-            const cardUrl = `${BOT_BASE_URL}/card?title=${encodeURIComponent(item.title)}&image=${encodeURIComponent(item.image)}`;
-            fbId = await postPhotoToFacebook(postText, cardUrl);
-        } else {
-            // Fallback to regular link post
-            fbId = await postToFacebook(postText, item.link);
-        }
+        // Use the dynamic card generator
+        const cardUrl = `${BOT_BASE_URL}/card?title=${encodeURIComponent(item.title)}&image=${encodeURIComponent(item.image)}`;
+        const fbId = await postPhotoToFacebook(postText, cardUrl);
 
         if (fbId === null) return false;  // rate limited
 
