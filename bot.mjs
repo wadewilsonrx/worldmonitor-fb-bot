@@ -41,6 +41,7 @@ const __dirname = dirname(__filename);
 const FB_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN || '';
 const FB_PAGE_ID = process.env.FB_PAGE_ID || '';
 const WM_API_URL = (process.env.WORLDMONITOR_API_URL || 'https://worldmonitor-oshada.vercel.app').replace(/\/$/, '');
+const WM_API_KEY = process.env.WM_API_KEY || '';              // X-WorldMonitor-Key header — required for server-side access
 const MAX_PER_BATCH = parseInt(process.env.MAX_POSTS_PER_BATCH || '3', 10);
 const POLL_MS = parseInt(process.env.POLL_INTERVAL_MS || '60000', 10);
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -216,9 +217,9 @@ async function fetchWithRetry(url, options = {}, maxTries = 3) {
 // ─── World Monitor API ────────────────────────────────────────────────────────
 async function fetchNewsDigest() {
     const url = `${WM_API_URL}/api/news/v1/list-feed-digest`;
-    const res = await fetchWithRetry(url, {
-        headers: { Accept: 'application/json', 'User-Agent': `WM-FB-Bot/${VERSION}` },
-    });
+    const headers = { Accept: 'application/json', 'User-Agent': `WM-FB-Bot/${VERSION}` };
+    if (WM_API_KEY) headers['X-WorldMonitor-Key'] = WM_API_KEY;
+    const res = await fetchWithRetry(url, { headers });
     if (!res.ok) throw new Error(`WM API returned ${res.status}`);
     const data = await res.json();
     const items = [];
@@ -244,11 +245,17 @@ async function fetchNewsDigest() {
 
 // ─── RSS Fallback Feeds ────────────────────────────────────────────────────────
 const RSS_FALLBACK_FEEDS = [
+    // Tier 1 — highly reliable on cloud IPs
     { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', category: 'world', source: 'BBC News' },
-    { url: 'https://rss.cnn.com/rss/edition_world.rss', category: 'world', source: 'CNN' },
-    { url: 'https://feeds.reuters.com/reuters/topNews', category: 'world', source: 'Reuters' },
-    { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', category: 'world', source: 'NYT' },
     { url: 'https://www.aljazeera.com/xml/rss/all.xml', category: 'world', source: 'Al Jazeera' },
+    { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', category: 'world', source: 'NYT' },
+    { url: 'https://feeds.npr.org/1004/rss.xml', category: 'world', source: 'NPR' },
+    { url: 'https://www.theguardian.com/world/rss', category: 'world', source: 'The Guardian' },
+    { url: 'https://rss.dw.com/rdf/rss-en-world', category: 'world', source: 'DW News' },
+    // Tier 2 — usually available
+    { url: 'https://feeds.bbci.co.uk/news/technology/rss.xml', category: 'tech', source: 'BBC Tech' },
+    { url: 'https://www.theguardian.com/science/rss', category: 'science', source: 'Guardian Science' },
+    { url: 'https://feeds.bbci.co.uk/news/business/rss.xml', category: 'business', source: 'BBC Business' },
 ];
 
 function parseRssItem(xml, fallback) {
