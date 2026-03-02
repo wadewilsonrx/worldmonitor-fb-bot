@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: worldmonitor-fb-bot
+    runtime: node
+    plan: free                       # Upgrade to 'starter' (~$7/mo) to eliminate sleep
+    region: oregon                   # Change to 'frankfurt' or 'singapore' if preferred
+    buildCommand: echo "No build step required"
+    startCommand: node bot.mjs
+    healthCheckPath: /health
+    envVars:
+      - key: FB_PAGE_ACCESS_TOKEN
+        sync: false                  # Must be set manually in Render Dashboard
+      - key: FB_PAGE_ID
+        sync: false
+      - key: WORLDMONITOR_API_URL
+        value: https://worldmonitor-oshada.vercel.app
+      - key: POLL_INTERVAL_MS
+        value: "60000"
+      - key: MAX_POSTS_PER_BATCH
+        value: "3"
+      - key: MAX_FB_CALLS_PER_HOUR
+        value: "180"
+      - key: DRY_RUN
+        value: "false"
+      # KEEP_ALIVE_URL: set this to your own Render URL after first deploy
+      # e.g. https://worldmonitor-fb-bot.onrender.com/health
+      # This prevents the free tier from sleeping after 15 min of inactivity
