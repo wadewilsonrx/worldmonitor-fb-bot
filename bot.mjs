@@ -368,7 +368,6 @@ function formatPost(item, aiSummary, breaking) {
     if (item.source) body += `📌 Source: ${item.source}\n`;
     const ago = fmtTimeAgo(item.pubDate);
     if (ago) body += `🕐 ${ago}\n`;
-    if (item.link) body += `\n🔗 ${item.link}\n`;
 
     body += `\n${hashtags} #WorldMonitor #News`;
     if (breaking) body += ` #BreakingNews`;
