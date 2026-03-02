@@ -718,87 +718,66 @@ async function handleCardRequest(req, res) {
 async function renderNewsCard(title, imageUrl) {
     const width = 1080;
     const height = 1080;
+    const templatePath = join(__dirname, 'template.svg');
 
-    // 1. Fetch the article image
+    if (!existsSync(templatePath)) {
+        throw new Error('template.svg missing. Please ensure it is in the bot directory.');
+    }
+
+    // 1. Fetch/Prepare the article image
     let articlePhoto;
     try {
         const resp = await fetch(imageUrl, { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': BROWSER_UA } });
         if (!resp.ok) throw new Error('Photo fetch failed');
         articlePhoto = Buffer.from(await resp.arrayBuffer());
     } catch (err) {
-        log(`  ⚠️  Failed to fetch article image: ${err.message}. Using placeholder.`);
-        articlePhoto = readFileSync(join(__dirname, 'logo.png')); // Fallback to logo or a generic placeholder
+        log(`  ⚠️  Photo fetch failed: ${err.message}. Using fallback.`);
+        articlePhoto = readFileSync(join(__dirname, 'logo.png'));
     }
 
-    // 2. Prepare the article image (Resize and Round Corners)
-    // The SVG grid spot is roughly at [81, 130] with size [648, 376] in 810x810 space.
-    // Scaled to 1080x1080, that's roughly:
-    const gridX = 108;
-    const gridY = 174;
-    const gridW = 864;
-    const gridH = 502;
+    // Grid coordinates from the original SVG (scaled 810 -> 1080)
+    // The grid spot is roughly x=81.75, y=130.86, w=646.5, h=375.5 in 810 space
+    const gridX = Math.round(81.75 * 1.3333);
+    const gridY = Math.round(130.86 * 1.3333);
+    const gridW = Math.round(646.5 * 1.3333);
+    const gridH = Math.round(375.5 * 1.3333);
     const cornerRadius = 40;
 
-    // Create a rounded mask for the article image
+    // Process article image with rounded corners
     const mask = Buffer.from(
         `<svg><rect x="0" y="0" width="${gridW}" height="${gridH}" rx="${cornerRadius}" ry="${cornerRadius}" /></svg>`
     );
 
-    const processedArticleImg = await sharp(articlePhoto)
+    const processedImg = await sharp(articlePhoto)
         .resize(gridW, gridH, { fit: 'cover' })
         .composite([{ input: mask, blend: 'dest-in' }])
         .png()
         .toBuffer();
 
-    // 3. Prepare the SVG Overlay (Headline and Template Elements)
-    // We'll use the user's SVG structure but inject the dynamic title
+    // 2. Prepare the Dynamic Headline Overlay
+    // Positioned relative to the white sidebar and NEWS label
+    const textX = Math.round(155 * 1.3333);
+    const textY = Math.round(605 * 1.3333);
+    const textW = Math.round(550 * 1.3333);
     const titleEscaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').toUpperCase();
 
-    const svgOverlay = Buffer.from(`
-        <svg width="${width}" height="${height}" viewBox="0 0 810 810" xmlns="http://www.w3.org/2000/svg">
-            <!-- Background Red -->
-            <rect x="0" y="0" width="810" height="810" fill="#e50000" />
-            
-            <!-- Sphere News Header -->
-            <text x="729" y="90" font-family="Arial, sans-serif" font-weight="900" font-size="22" fill="white" text-anchor="end">SPHERE NEWS</text>
-            
-            <!-- White Sidebar Decoration -->
-            <rect x="81" y="535" width="17" height="188" fill="white" />
-            
-            <!-- News Label Box -->
-            <rect x="125" y="550" width="110" height="45" fill="white" />
-            <text x="180" y="582" font-family="Arial, sans-serif" font-weight="900" font-size="24" fill="#e50000" text-anchor="middle">NEWS</text>
-            
-            <!-- Headline Text (Wrapped) -->
-            <foreignObject x="125" y="610" width="550" height="180">
-                <div xmlns="http://www.w3.org/1999/xhtml" style="color: white; font-family: Arial, sans-serif; font-weight: 900; font-size: 36px; line-height: 1.1; text-align: left; text-transform: uppercase;">
+    const headlineSvg = Buffer.from(`
+        <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+            <foreignObject x="${textX}" y="${textY}" width="${textW}" height="250">
+                <div xmlns="http://www.w3.org/1999/xhtml" style="color: white; font-family: 'Arial Black', Gadget, sans-serif; font-weight: 900; font-size: 44px; line-height: 1.1; text-align: left; text-transform: uppercase;">
                     ${titleEscaped}
                 </div>
             </foreignObject>
-            
-            <!-- Small Bottom Text -->
-            <text x="81" y="760" font-family="Arial, sans-serif" font-size="10" fill="white">BRINGING THE WORLD TO YOUR SCREEN.</text>
-            
-            <!-- Arrow Icon (Simplified) -->
-            <path d="M670 725 L725 745 L670 765 Z" fill="white" />
         </svg>
     `);
 
-    // 4. Composite final image
-    // Layer 1: Red template base
-    // Layer 2: Article image in the slot
-    // Layer 3: SVG decorations and text
-    return sharp({
-        create: {
-            width: width,
-            height: height,
-            channels: 4,
-            background: { r: 229, g: 0, b: 0, alpha: 1 }
-        }
-    })
+    // 3. Final Composition
+    // We use the actual template.svg file as the base to keep all patterns/logos
+    return sharp(templatePath)
+        .resize(width, height)
         .composite([
-            { input: processedArticleImg, left: gridX, top: gridY },
-            { input: svgOverlay, left: 0, top: 0 }
+            { input: processedImg, left: gridX, top: gridY },
+            { input: headlineSvg, left: 0, top: 0 }
         ])
         .png()
         .toBuffer();
