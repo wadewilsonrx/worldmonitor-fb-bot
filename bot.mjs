@@ -30,6 +30,7 @@
 
 import { createServer } from 'http';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import sharp from 'sharp';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createHash } from 'crypto';
@@ -46,6 +47,7 @@ const MAX_PER_BATCH = parseInt(process.env.MAX_POSTS_PER_BATCH || '3', 10);
 const POLL_MS = parseInt(process.env.POLL_INTERVAL_MS || '60000', 10);
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const KEEP_ALIVE_URL = process.env.KEEP_ALIVE_URL || '';          // e.g. https://your-app.onrender.com/health
+const BOT_BASE_URL = KEEP_ALIVE_URL ? new URL(KEEP_ALIVE_URL).origin : '';
 const KEEP_ALIVE_MS = parseInt(process.env.KEEP_ALIVE_INTERVAL || '840000', 10); // 14 min
 const MAX_FB_PER_HOUR = parseInt(process.env.MAX_FB_CALLS_PER_HOUR || '180', 10);
 const MAX_ARTICLE_AGE_H = parseFloat(process.env.MAX_ARTICLE_AGE_HOURS || '0.5'); // 30 min — only post truly fresh news
@@ -246,6 +248,7 @@ async function fetchNewsDigest() {
                     pubDate: raw.publishedAt || raw.pubDate || '',
                     category: catName,
                     description: raw.description || raw.summary || '',
+                    image: raw.image || '',
                 });
             }
         }
@@ -402,6 +405,27 @@ async function postToFacebook(message, link) {
     return data.id;
 }
 
+async function postPhotoToFacebook(message, imageUrl) {
+    if (DRY_RUN) {
+        log(`  🧪 [DRY RUN] Would post photo: ${message.slice(0, 80)}…`);
+        return 'dry-run';
+    }
+    if (!fbRateLimitOk()) return null;
+
+    const body = { caption: message, url: imageUrl, access_token: FB_TOKEN };
+    const res = await fetch(`${GRAPH_API}/${FB_PAGE_ID}/photos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(20_000),
+    });
+
+    state.fbCallsThisHour++;
+    const data = await res.json();
+    if (!res.ok) throw new Error(`FB Photo ${res.status}: ${JSON.stringify(data.error || data)}`);
+    return data.id;
+}
+
 async function publishItem(item, breaking) {
     const itemId = makeItemId(item);
     if (postedSet.has(itemId)) return false;
@@ -413,7 +437,16 @@ async function publishItem(item, breaking) {
     const postText = formatPost(item, aiSummary, breaking);
 
     try {
-        const fbId = await postToFacebook(postText, item.link);
+        let fbId;
+        if (item.image && BOT_BASE_URL) {
+            // Use the dynamic card generator if we have a source image
+            const cardUrl = `${BOT_BASE_URL}/card?title=${encodeURIComponent(item.title)}&image=${encodeURIComponent(item.image)}`;
+            fbId = await postPhotoToFacebook(postText, cardUrl);
+        } else {
+            // Fallback to regular link post
+            fbId = await postToFacebook(postText, item.link);
+        }
+
         if (fbId === null) return false;  // rate limited
 
         log(`  ✅ Posted → FB ${fbId}`);
@@ -596,6 +629,8 @@ function startHealthServer() {
         } else if (req.url === '/' || req.url === '/dashboard') {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end(buildStatusHtml());
+        } else if (req.url.startsWith('/card')) {
+            handleCardRequest(req, res);
         } else {
             res.writeHead(404);
             res.end('Not found');
@@ -608,6 +643,80 @@ function startHealthServer() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function handleCardRequest(req, res) {
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const title = url.searchParams.get('title') || 'Breaking News';
+    const imageUrl = url.searchParams.get('image');
+
+    try {
+        const card = await renderNewsCard(title, imageUrl);
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=3600' });
+        res.end(card);
+    } catch (err) {
+        log(`  ⚠️  Card render failed: ${err.message}`);
+        res.writeHead(500);
+        res.end('Internal Server Error');
+    }
+}
+
+async function renderNewsCard(title, imageUrl) {
+    const width = 1080;
+    const height = 1080;
+    const redColor = '#D0021B';
+
+    // 1. Fetch the main photo
+    let mainPhoto;
+    try {
+        const resp = await fetch(imageUrl, { signal: AbortSignal.timeout(5000), headers: { 'User-Agent': BROWSER_UA } });
+        if (!resp.ok) throw new Error('Photo fetch failed');
+        mainPhoto = Buffer.from(await resp.arrayBuffer());
+    } catch {
+        // Fallback or placeholder
+        mainPhoto = readFileSync(join(__dirname, 'placeholder_news.jpg'));
+    }
+
+    // 2. Process background (square crop)
+    const background = await sharp(mainPhoto)
+        .resize(width, height, { fit: 'cover' })
+        .toBuffer();
+
+    // 3. Create SVG Layers (Header and Bottom Bar)
+    const logoFile = join(__dirname, 'logo.png');
+    let logoOverlay = [];
+    if (existsSync(logoFile)) {
+        logoOverlay = [{ input: logoFile, top: 20, left: 20, width: 80, height: 80 }];
+    }
+
+    const titleEscaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const footerSvg = Buffer.from(`
+        <svg width="${width}" height="300">
+            <rect x="0" y="0" width="${width}" height="300" fill="${redColor}" />
+            <foreignObject x="40" y="40" width="${width - 80}" height="220">
+                <div xmlns="http://www.w3.org/1999/xhtml" style="color: white; font-family: 'Helvetica', 'Arial', sans-serif; font-weight: 800; font-size: 56px; line-height: 1.1; text-align: center; display: flex; align-items: center; justify-content: center; height: 100%; text-transform: uppercase;">
+                    ${titleEscaped}
+                </div>
+            </foreignObject>
+        </svg>
+    `);
+
+    const headerSvg = Buffer.from(`
+        <svg width="${width}" height="100">
+            <rect x="0" y="0" width="${width}" height="100" fill="${redColor}" />
+            <text x="540" y="65" font-family="sans-serif" font-weight="900" font-size="42px" fill="white" text-anchor="middle" letter-spacing="4px">WORLD MONITOR NEWS</text>
+        </svg>
+    `);
+
+    // 4. Composite final image
+    return sharp(background)
+        .composite([
+            { input: headerSvg, top: 0, left: 0 },
+            { input: footerSvg, top: height - 300, left: 0 },
+            ...logoOverlay
+        ])
+        .png()
+        .toBuffer();
+}
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
 function shutdown(sig) {
