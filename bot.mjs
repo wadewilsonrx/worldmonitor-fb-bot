@@ -244,6 +244,18 @@ async function fetchNewsDigest() {
                 const link = raw.link || raw.url || '';
                 if (link.includes('news.google.com')) continue; // Skip Google News (no images)
 
+                // If API doesn't provide image, try to find it in the raw data
+                let image = raw.image || '';
+                if (!image && raw.description) {
+                    const imgMatch = raw.description.match(/<img[^>]+src=["']([^"']+)["']/i);
+                    if (imgMatch) image = imgMatch[1];
+                }
+
+                if (!image && raw.content) {
+                    const imgMatch = raw.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+                    if (imgMatch) image = imgMatch[1];
+                }
+
                 items.push({
                     title: raw.title || '',
                     link,
@@ -251,7 +263,7 @@ async function fetchNewsDigest() {
                     pubDate: raw.publishedAt || raw.pubDate || '',
                     category: catName,
                     description: raw.description || raw.summary || '',
-                    image: raw.image || '',
+                    image,
                 });
             }
         }
@@ -289,6 +301,13 @@ function parseRssItem(xml, fallback) {
 
         const pubDate = (block.match(/<pubDate>(.*?)<\/pubDate>/i) || [])[1] || '';
         const desc = (block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/i) || block.match(/<description>(.*?)<\/description>/i) || [])[1] || '';
+
+        // Extract image from various RSS tags
+        const image = (block.match(/<media:content[^>]+url=["']([^"']+)["']/i) ||
+            block.match(/<enclosure[^>]+url=["']([^"']+)["']/i) ||
+            block.match(/<img[^>]+src=["']([^"']+)["']/i) ||
+            block.match(/<thumb[^>]+url=["']([^"']+)["']/i))?.[1] || '';
+
         if (title) items.push({
             title: htmlEntities(title.trim()),
             link: link.trim(),
@@ -296,6 +315,7 @@ function parseRssItem(xml, fallback) {
             pubDate: pubDate.trim(),
             category: fallback.category,
             description: htmlEntities(desc.replace(/<[^>]*>/g, '').trim()).slice(0, 300),
+            image
         });
     }
     return items;
