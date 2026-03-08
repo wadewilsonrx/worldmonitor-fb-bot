@@ -74,6 +74,7 @@ const state = {
     lastError: null,
     fbCallsThisHour: 0,
     fbHourWindow: Date.now(),
+    fbBlockUntil: 0,
     isRunning: true,
     recentLogs: [],   // Circular buffer, last 100 log lines
 };
@@ -412,6 +413,11 @@ async function postToFacebook(message, link) {
         log(`  🧪 [DRY RUN] Would post: ${message.slice(0, 80)}…`);
         return 'dry-run';
     }
+    if (state.fbBlockUntil > Date.now()) {
+        const remainingHr = ((state.fbBlockUntil - Date.now()) / 3600000).toFixed(1);
+        log(`  ⚠️  FB in timeout for ${remainingHr} more hours due to Spam Limit (Code 368). Skipping.`);
+        return null;
+    }
     if (!fbRateLimitOk()) {
         log(`  ⚠️  FB rate limit reached (${state.fbCallsThisHour}/${MAX_FB_PER_HOUR}/hr) — skipping`);
         return null;
@@ -429,7 +435,13 @@ async function postToFacebook(message, link) {
 
     state.fbCallsThisHour++;
     const data = await res.json();
-    if (!res.ok) throw new Error(`FB ${res.status}: ${JSON.stringify(data.error || data)}`);
+    if (!res.ok) {
+        if (data.error && data.error.code === 368) {
+            log(`  🚨 FB Spam Block Detected! Entering 24-hour sleep mode for FB posting.`);
+            state.fbBlockUntil = Date.now() + 24 * 3600 * 1000;
+        }
+        throw new Error(`FB ${res.status}: ${JSON.stringify(data.error || data)}`);
+    }
     return data.id;
 }
 
@@ -437,6 +449,11 @@ async function postPhotoToFacebook(message, imageUrl) {
     if (DRY_RUN) {
         log(`  🧪 [DRY RUN] Would post photo: ${message.slice(0, 80)}…`);
         return 'dry-run';
+    }
+    if (state.fbBlockUntil > Date.now()) {
+        const remainingHr = ((state.fbBlockUntil - Date.now()) / 3600000).toFixed(1);
+        log(`  ⚠️  FB in timeout for ${remainingHr} more hours due to Spam Limit (Code 368). Skipping.`);
+        return null;
     }
     if (!fbRateLimitOk()) return null;
 
@@ -450,7 +467,13 @@ async function postPhotoToFacebook(message, imageUrl) {
 
     state.fbCallsThisHour++;
     const data = await res.json();
-    if (!res.ok) throw new Error(`FB Photo ${res.status}: ${JSON.stringify(data.error || data)}`);
+    if (!res.ok) {
+        if (data.error && data.error.code === 368) {
+            log(`  🚨 FB Spam Block Detected! Entering 24-hour sleep mode for FB posting.`);
+            state.fbBlockUntil = Date.now() + 24 * 3600 * 1000;
+        }
+        throw new Error(`FB Photo ${res.status}: ${JSON.stringify(data.error || data)}`);
+    }
     return data.id;
 }
 
