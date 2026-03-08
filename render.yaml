@@ -5,7 +5,7 @@ services:
     plan: free                       # Upgrade to 'starter' (~$7/mo) to eliminate sleep
     region: oregon                   # Change to 'frankfurt' or 'singapore' if preferred
     buildCommand: echo "No build step required"
-    startCommand: node bot.mjs
+    startCommand: node --max-old-space-size=256 bot.mjs
     healthCheckPath: /health
     envVars:
       - key: FB_PAGE_ACCESS_TOKEN

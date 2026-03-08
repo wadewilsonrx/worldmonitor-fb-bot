@@ -7,8 +7,8 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "node bot.mjs",
-    "dev": "node bot.mjs"
+    "start": "node --max-old-space-size=256 bot.mjs",
+    "dev": "node --max-old-space-size=256 bot.mjs"
   },
   "dependencies": {
     "sharp": "0.33.2"

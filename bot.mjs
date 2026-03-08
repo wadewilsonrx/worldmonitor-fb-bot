@@ -38,6 +38,9 @@ import { createHash } from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Disable sharp's internal memory cache to prevent RAM exhaustion on Render Free Tier
+sharp.cache(false);
+
 // ─── Config ──────────────────────────────────────────────────────────────────
 const FB_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN || '';
 const FB_PAGE_ID = process.env.FB_PAGE_ID || '';
@@ -455,6 +458,9 @@ async function publishItem(item, breaking) {
     const itemId = makeItemId(item);
     if (postedSet.has(itemId)) return false;
 
+    // Mark as posted immediately to prevent retry loops on failure/skip
+    markPosted(itemId);
+
     const tag = breaking ? '🚨 BREAKING' : '📰 Regular';
     log(`${tag}: ${item.title}`);
 
@@ -481,7 +487,6 @@ async function publishItem(item, breaking) {
         if (fbId === null) return false;  // rate limited
 
         log(`  ✅ Posted → FB ${fbId}`);
-        markPosted(itemId);
         state.totalPosted++;
         state.lastPost = new Date().toISOString();
         if (breaking) state.breakingPosted++;
@@ -531,10 +536,16 @@ async function poll() {
 
     log(`  ↳ New items: ${newItems.length} (🚨 ${breakingList.length} breaking, 📰 ${regularList.length} regular)`);
 
-    // ── POST BREAKING IMMEDIATELY (always) ──
-    for (const item of breakingList) {
-        await publishItem(item, true);
-        await sleep(2000);
+    // ── POST BREAKING IMMEDIATELY (capped at MAX_PER_BATCH per poll to avoid flooding) ──
+    if (breakingList.length > 0) {
+        const toPostBreaking = breakingList.slice(0, MAX_PER_BATCH);
+        if (breakingList.length > MAX_PER_BATCH) {
+            log(`📦 Throttling breaking news to ${MAX_PER_BATCH} items (out of ${breakingList.length})`);
+        }
+        for (const item of toPostBreaking) {
+            await publishItem(item, true);
+            await sleep(5000); // Increased sleep to prevent burst rate limiting
+        }
     }
 
     // ── POST REGULAR IMMEDIATELY (capped at MAX_PER_BATCH per poll to avoid flooding) ──
@@ -543,7 +554,7 @@ async function poll() {
         log(`📦 Posting ${toPost.length} regular article${toPost.length > 1 ? 's' : ''} now`);
         for (const item of toPost) {
             await publishItem(item, false);
-            await sleep(3000);
+            await sleep(5000); // Increased sleep to prevent burst rate limiting
         }
     }
 }
