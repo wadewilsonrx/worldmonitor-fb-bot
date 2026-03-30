@@ -138,16 +138,37 @@ const CAT_EMOJI = {
 };
 
 const CAT_HASHTAGS = {
-    conflict: '#Conflict #Geopolitics', war: '#War #Conflict',
-    military: '#Military #Defense', terrorism: '#Security #Terrorism',
-    politics: '#Politics #Government', diplomacy: '#Diplomacy #ForeignPolicy',
-    economy: '#Economy #Economics', business: '#Business #Industry',
-    finance: '#Finance #Markets', markets: '#StockMarket #Trading',
-    technology: '#Technology #Innovation', tech: '#Tech #Innovation',
-    cyber: '#CyberSecurity #InfoSec', science: '#Science #Research',
-    health: '#Health #PublicHealth', climate: '#Climate #ClimateChange',
-    environment: '#Environment #Sustainability', disaster: '#NaturalDisaster #Emergency',
-    energy: '#Energy #Power', nuclear: '#Nuclear', space: '#Space #Astronomy',
+    conflict:    '#Conflict #Geopolitics #WorldConflict #InternationalNews #CrisisUpdate',
+    war:         '#War #Conflict #WorldNews #MilitaryNews #GlobalCrisis',
+    military:    '#Military #Defense #NationalSecurity #ArmedForces #GlobalDefense',
+    terrorism:   '#Terrorism #Security #GlobalSecurity #CounterTerrorism #WorldSafety',
+    politics:    '#Politics #Government #WorldPolitics #GlobalAffairs #PolicyNews',
+    diplomacy:   '#Diplomacy #ForeignPolicy #InternationalRelations #GeoPolitics #WorldAffairs',
+    economy:     '#Economy #Economics #GlobalEconomy #WorldMarkets #EconomicNews',
+    business:    '#Business #Industry #GlobalBusiness #MarketNews #TradeNews',
+    finance:     '#Finance #Markets #GlobalFinance #Investing #EconomicUpdate',
+    markets:     '#StockMarket #Trading #FinancialNews #GlobalMarkets #Investing',
+    technology:  '#Technology #Innovation #TechNews #DigitalWorld #FutureTech',
+    tech:        '#Tech #Innovation #TechNews #AI #DigitalTransformation',
+    cyber:       '#CyberSecurity #InfoSec #DataProtection #Hacking #DigitalSecurity',
+    science:     '#Science #Research #ScientificDiscovery #Innovation #KnowledgeUpdate',
+    health:      '#Health #PublicHealth #GlobalHealth #HealthNews #MedicalUpdate',
+    climate:     '#Climate #ClimateChange #GlobalWarming #ClimateAction #Environment',
+    environment: '#Environment #Sustainability #EcoNews #GreenPlanet #ClimateAction',
+    disaster:    '#NaturalDisaster #Emergency #DisasterRelief #CrisisNews #WorldAlert',
+    energy:      '#Energy #Power #RenewableEnergy #GlobalEnergy #CleanEnergy',
+    nuclear:     '#Nuclear #NuclearEnergy #GlobalSecurity #NuclearNews #WorldSafety',
+    space:       '#Space #Astronomy #SpaceExploration #NASA #CosmicNews',
+    sports:      '#Sports #WorldSports #Athletics #GameDay #SportingNews',
+    culture:     '#Culture #Arts #GlobalCulture #WorldCulture #LifestyleNews',
+    breaking:    '#BreakingNews #UrgentNews #WorldNews #NewsAlert #LatestNews',
+    world:       '#WorldNews #GlobalNews #InternationalNews #TopStories #NewsUpdate',
+    asia:        '#Asia #AsianNews #AsiaPacific #GlobalAffairs #WorldNews',
+    europe:      '#Europe #EuropeanNews #EUNews #GlobalAffairs #WorldNews',
+    americas:    '#Americas #NorthAmerica #LatinAmerica #GlobalNews #WorldAffairs',
+    africa:      '#Africa #AfricanNews #GlobalAffairs #WorldNews #AfricaUpdate',
+    'middle-east': '#MiddleEast #MENews #GlobalAffairs #RegionalNews #WorldNews',
+    general:     '#WorldNews #GlobalNews #TopStories #NewsUpdate #InternationalNews',
 };
 
 // ─── Deduplication (URL hash + title hash) ──────────────────────────────────
@@ -397,13 +418,8 @@ function formatPost(item, aiSummary, breaking) {
         body += `📝 ${d}${d.length >= 280 ? '…' : ''}\n\n`;
     }
 
-    if (item.source) body += `📌 Source: ${item.source}\n`;
-    const ago = fmtTimeAgo(item.pubDate);
-    if (ago) body += `🕐 ${ago}\n`;
-
-    body += `\n${hashtags} #WorldMonitor #News`;
-    if (breaking) body += ` #BreakingNews`;
-    body += `\n━━━━━━━━━━━━━━━━\n🌍 World Monitor`;
+    body += `\n${hashtags}`;
+    if (breaking) body += ` #BreakingNews #UrgentUpdate`;
     return body;
 }
 
