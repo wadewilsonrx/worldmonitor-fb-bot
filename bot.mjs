@@ -888,17 +888,22 @@ async function renderNewsCard(title, imageUrl) {
     const usableH = txtH - 80;
     const centerX = Math.round(txtW / 2);
 
+    // Horizontal padding: ensures text never touches the strip edges
+    const hPad = 50; // px on each side
+    // effectiveW is the usable width for text wrapping
+    const effectiveW = txtW - hPad * 2;
+
     // Adaptive font: start large, shrink until ALL words fit within usableH
-    // avgCharWidth is estimated as ~0.55 * fontSize for Arial Black (uppercase)
+    // Arial Black uppercase glyphs are ~0.72× the font size wide on average.
+    // Using effectiveW (with padding) prevents horizontal overflow/clipping.
     let fontSize   = 52;
     let lineHeight = Math.round(fontSize * 1.27);
     let displayLines = [];
 
-    while (fontSize >= 28) {
+    while (fontSize >= 24) {
         lineHeight = Math.round(fontSize * 1.27);
-        // Estimate chars-per-line based on strip width and current font size
-        const avgCharW = fontSize * 0.55;
-        const maxChars = Math.floor(txtW / avgCharW);
+        const avgCharW = fontSize * 0.72; // accurate for Arial Black ALL-CAPS
+        const maxChars = Math.floor(effectiveW / avgCharW);
 
         const words = safeTitle.split(' ');
         const lines = [];
@@ -925,8 +930,8 @@ async function renderNewsCard(title, imageUrl) {
     // Fallback: if still too tall at min size, cap lines to fit
     if (displayLines.length === 0) {
         lineHeight = Math.round(fontSize * 1.27);
-        const avgCharW = fontSize * 0.55;
-        const maxChars = Math.floor(txtW / avgCharW);
+        const avgCharW = fontSize * 0.72;
+        const maxChars = Math.floor(effectiveW / avgCharW);
         const words = safeTitle.split(' ');
         const lines = [];
         let cur = '';
