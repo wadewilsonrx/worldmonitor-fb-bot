@@ -829,41 +829,35 @@ async function handleCardRequest(req, res) {
 }
 
 async function renderNewsCard(title, imageUrl) {
-    // Output: 1080×1350 (Instagram portrait 4:5)
+    // Output: 1080x1350 (Instagram portrait 4:5)
     const width  = 1080;
     const height = 1350;
 
-    // New red "Breaking News" template
+    // New red Breaking News template
     const templatePath = join(__dirname, 'template2.svg');
     if (!existsSync(templatePath)) {
-        throw new Error('template2.svg missing — copy the new SVG file to the project root.');
+        throw new Error('template2.svg missing - copy the new SVG to the project root.');
     }
 
-    // Scale factor: SVG viewBox is 810×1012.5  →  output 1080×1350
-    const SCALE = 1080 / 810; // 1.3333…
+    // Scale factor: SVG viewBox 810x1012.5 -> output 1080x1350
+    const SCALE = 1080 / 810;
 
-    // ── Zone 1: large photo placeholder ──
-    // Derived from clipPath coords: x=81.16 y=145.68 w=647.84 h=529.89
-    const imgX = Math.round(81.16  * SCALE);  // ≈ 108
-    const imgY = Math.round(145.68 * SCALE);  // ≈ 194
-    const imgW = Math.round(647.84 * SCALE);  // ≈ 864
-    const imgH = Math.round(529.89 * SCALE);  // ≈ 707
-    const imgRadius = 30;
+    // Zone 1: large photo area (from SVG clipPath coords)
+    const imgX = Math.round(81.16  * SCALE);  // 108
+    const imgY = Math.round(145.68 * SCALE);  // 194
+    const imgW = Math.round(647.84 * SCALE);  // 864
+    const imgH = Math.round(529.89 * SCALE);  // 707
 
-    // ── Zone 2: white title strip ──
-    // Derived from clipPath coords: x=81.16 y=697.96 w=647.84 h=231.11
-    const txtX = Math.round(81.16  * SCALE);  // ≈ 108
-    const txtY = Math.round(697.96 * SCALE);  // ≈ 931
-    const txtW = Math.round(647.84 * SCALE);  // ≈ 864
-    const txtH = Math.round(231.11 * SCALE);  // ≈ 308
+    // Zone 2: white title strip (above the Follow us button)
+    const txtX = Math.round(81.16  * SCALE);  // 108
+    const txtY = Math.round(697.96 * SCALE);  // 931
+    const txtW = Math.round(647.84 * SCALE);  // 864
+    const txtH = Math.round(231.11 * SCALE);  // 308
 
-    // ── 1. Fetch article photo ──
+    // 1. Fetch article photo
     let articlePhoto;
     try {
-        const resp = await fetch(imageUrl, {
-            signal: AbortSignal.timeout(8000),
-            headers: { 'User-Agent': BROWSER_UA }
-        });
+        const resp = await fetch(imageUrl, { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': BROWSER_UA } });
         if (!resp.ok) throw new Error('Photo fetch failed');
         articlePhoto = Buffer.from(await resp.arrayBuffer());
     } catch (err) {
@@ -871,10 +865,9 @@ async function renderNewsCard(title, imageUrl) {
         articlePhoto = readFileSync(join(__dirname, 'logo.png'));
     }
 
-    // ── 2. Resize + round corners on article photo ──
+    // 2. Resize photo with rounded corners
     const imgMask = Buffer.from(
-        `<svg><rect x="0" y="0" width="${imgW}" height="${imgH}" ` +
-        `rx="${imgRadius}" ry="${imgRadius}"/></svg>`
+        `<svg><rect x="0" y="0" width="${imgW}" height="${imgH}" rx="30" ry="30"/></svg>`
     );
     const processedImg = await sharp(articlePhoto)
         .resize(imgW, imgH, { fit: 'cover' })
@@ -882,53 +875,52 @@ async function renderNewsCard(title, imageUrl) {
         .png()
         .toBuffer();
 
-    // ── 3. Build title text SVG for white strip ──
-    // Escape XML special chars
+    // 3. Build centered ALL-CAPS title SVG for white strip
     const safeTitle = title
+        .toUpperCase()
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&apos;');
 
-    // Word-wrap: ~28 chars per line at fontSize 44
-    const fontSize   = 44;
-    const lineHeight = 58;
-    const maxChars   = 28;
-    const padX       = 28;
+    // Usable strip height = strip minus ~80px for the Follow-us button at bottom
+    const usableH    = txtH - 80;
+    const fontSize   = 52;
+    const lineHeight = 66;
+    const maxChars   = 22;
+    const centerX    = Math.round(txtW / 2);
 
     const words = safeTitle.split(' ');
     const lines = [];
     let cur = '';
-    for (const word of words) {
-        const candidate = cur ? `${cur} ${word}` : word;
+    for (const w of words) {
+        const candidate = cur ? `${cur} ${w}` : w;
         if (candidate.length <= maxChars) {
             cur = candidate;
         } else {
             if (cur) lines.push(cur);
-            cur = word;
+            cur = w;
         }
     }
     if (cur) lines.push(cur);
-    const displayLines = lines.slice(0, 4); // max 4 lines
+    const displayLines = lines.slice(0, 3);
 
-    // Vertically centre text block inside the strip
-    const textBlockH  = displayLines.length * lineHeight;
-    const textStartY  = Math.round((txtH - textBlockH) / 2) + fontSize;
+    const textBlockH = displayLines.length * lineHeight;
+    const textStartY = Math.round((usableH - textBlockH) / 2) + fontSize;
 
     const tspans = displayLines
-        .map((line, i) => `<tspan x="${padX}" dy="${i === 0 ? 0 : lineHeight}">${line}</tspan>`)
+        .map((line, i) => `<tspan x="${centerX}" dy="${i === 0 ? 0 : lineHeight}">${line}</tspan>`)
         .join('');
 
     const titleSvg = Buffer.from(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${txtW}" height="${txtH}">` +
-        `<text x="${padX}" y="${textStartY}" ` +
+        `<text x="${centerX}" y="${textStartY}" text-anchor="middle" ` +
         `font-family="Arial Black, Arial, sans-serif" ` +
-        `font-size="${fontSize}" font-weight="900" fill="#CC0000" letter-spacing="-0.5">` +
-        `${tspans}</text></svg>`
+        `font-size="${fontSize}" font-weight="900" fill="#CC0000">${tspans}</text></svg>`
     );
 
-    // ── 4. Final composition ──
+    // 4. Final composition
     return sharp(templatePath)
         .resize(width, height)
         .composite([
