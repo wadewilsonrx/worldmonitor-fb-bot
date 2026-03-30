@@ -885,26 +885,60 @@ async function renderNewsCard(title, imageUrl) {
         .replace(/'/g, '&apos;');
 
     // Usable strip height = strip minus ~80px for the Follow-us button at bottom
-    const usableH    = txtH - 80;
-    const fontSize   = 52;
-    const lineHeight = 66;
-    const maxChars   = 22;
-    const centerX    = Math.round(txtW / 2);
+    const usableH = txtH - 80;
+    const centerX = Math.round(txtW / 2);
 
-    const words = safeTitle.split(' ');
-    const lines = [];
-    let cur = '';
-    for (const w of words) {
-        const candidate = cur ? `${cur} ${w}` : w;
-        if (candidate.length <= maxChars) {
-            cur = candidate;
-        } else {
-            if (cur) lines.push(cur);
-            cur = w;
+    // Adaptive font: start large, shrink until ALL words fit within usableH
+    // avgCharWidth is estimated as ~0.55 * fontSize for Arial Black (uppercase)
+    let fontSize   = 52;
+    let lineHeight = Math.round(fontSize * 1.27);
+    let displayLines = [];
+
+    while (fontSize >= 28) {
+        lineHeight = Math.round(fontSize * 1.27);
+        // Estimate chars-per-line based on strip width and current font size
+        const avgCharW = fontSize * 0.55;
+        const maxChars = Math.floor(txtW / avgCharW);
+
+        const words = safeTitle.split(' ');
+        const lines = [];
+        let cur = '';
+        for (const w of words) {
+            const candidate = cur ? `${cur} ${w}` : w;
+            if (candidate.length <= maxChars) {
+                cur = candidate;
+            } else {
+                if (cur) lines.push(cur);
+                cur = w;
+            }
         }
+        if (cur) lines.push(cur);
+
+        const blockH = lines.length * lineHeight;
+        if (blockH <= usableH) {
+            displayLines = lines;
+            break;
+        }
+        fontSize -= 4;
     }
-    if (cur) lines.push(cur);
-    const displayLines = lines.slice(0, 3);
+
+    // Fallback: if still too tall at min size, cap lines to fit
+    if (displayLines.length === 0) {
+        lineHeight = Math.round(fontSize * 1.27);
+        const avgCharW = fontSize * 0.55;
+        const maxChars = Math.floor(txtW / avgCharW);
+        const words = safeTitle.split(' ');
+        const lines = [];
+        let cur = '';
+        for (const w of words) {
+            const candidate = cur ? `${cur} ${w}` : w;
+            if (candidate.length <= maxChars) { cur = candidate; }
+            else { if (cur) lines.push(cur); cur = w; }
+        }
+        if (cur) lines.push(cur);
+        const maxLines = Math.floor(usableH / lineHeight);
+        displayLines = lines.slice(0, maxLines);
+    }
 
     const textBlockH = displayLines.length * lineHeight;
     const textStartY = Math.round((usableH - textBlockH) / 2) + fontSize;
