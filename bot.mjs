@@ -829,18 +829,41 @@ async function handleCardRequest(req, res) {
 }
 
 async function renderNewsCard(title, imageUrl) {
-    const width = 1080;
-    const height = 1080;
-    const templatePath = join(__dirname, 'template.svg');
+    // Output: 1080×1350 (Instagram portrait 4:5)
+    const width  = 1080;
+    const height = 1350;
 
+    // New red "Breaking News" template
+    const templatePath = join(__dirname, 'template2.svg');
     if (!existsSync(templatePath)) {
-        throw new Error('template.svg missing.');
+        throw new Error('template2.svg missing — copy the new SVG file to the project root.');
     }
 
-    // 1. Fetch/Prepare the article image
+    // Scale factor: SVG viewBox is 810×1012.5  →  output 1080×1350
+    const SCALE = 1080 / 810; // 1.3333…
+
+    // ── Zone 1: large photo placeholder ──
+    // Derived from clipPath coords: x=81.16 y=145.68 w=647.84 h=529.89
+    const imgX = Math.round(81.16  * SCALE);  // ≈ 108
+    const imgY = Math.round(145.68 * SCALE);  // ≈ 194
+    const imgW = Math.round(647.84 * SCALE);  // ≈ 864
+    const imgH = Math.round(529.89 * SCALE);  // ≈ 707
+    const imgRadius = 30;
+
+    // ── Zone 2: white title strip ──
+    // Derived from clipPath coords: x=81.16 y=697.96 w=647.84 h=231.11
+    const txtX = Math.round(81.16  * SCALE);  // ≈ 108
+    const txtY = Math.round(697.96 * SCALE);  // ≈ 931
+    const txtW = Math.round(647.84 * SCALE);  // ≈ 864
+    const txtH = Math.round(231.11 * SCALE);  // ≈ 308
+
+    // ── 1. Fetch article photo ──
     let articlePhoto;
     try {
-        const resp = await fetch(imageUrl, { signal: AbortSignal.timeout(8000), headers: { 'User-Agent': BROWSER_UA } });
+        const resp = await fetch(imageUrl, {
+            signal: AbortSignal.timeout(8000),
+            headers: { 'User-Agent': BROWSER_UA }
+        });
         if (!resp.ok) throw new Error('Photo fetch failed');
         articlePhoto = Buffer.from(await resp.arrayBuffer());
     } catch (err) {
@@ -848,31 +871,69 @@ async function renderNewsCard(title, imageUrl) {
         articlePhoto = readFileSync(join(__dirname, 'logo.png'));
     }
 
-    // Grid coordinates constant (scaled 810 -> 1080)
-    const gridX = Math.round(81.75 * 1.3333);
-    const gridY = Math.round(130.86 * 1.3333);
-    const gridW = Math.round(646.5 * 1.3333);
-    const gridH = Math.round(375.5 * 1.3333);
-    const cornerRadius = 40;
-
-    // Process article image with rounded corners
-    const mask = Buffer.from(
-        `<svg><rect x="0" y="0" width="${gridW}" height="${gridH}" rx="${cornerRadius}" ry="${cornerRadius}" /></svg>`
+    // ── 2. Resize + round corners on article photo ──
+    const imgMask = Buffer.from(
+        `<svg><rect x="0" y="0" width="${imgW}" height="${imgH}" ` +
+        `rx="${imgRadius}" ry="${imgRadius}"/></svg>`
     );
-
     const processedImg = await sharp(articlePhoto)
-        .resize(gridW, gridH, { fit: 'cover' })
-        .composite([{ input: mask, blend: 'dest-in' }])
+        .resize(imgW, imgH, { fit: 'cover' })
+        .composite([{ input: imgMask, blend: 'dest-in' }])
         .png()
         .toBuffer();
 
-    // 2. Final Composition
-    // We use the actual template.svg file as the base. 
-    // The user has handled the headline in the SVG itself or wants it static.
+    // ── 3. Build title text SVG for white strip ──
+    // Escape XML special chars
+    const safeTitle = title
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+
+    // Word-wrap: ~28 chars per line at fontSize 44
+    const fontSize   = 44;
+    const lineHeight = 58;
+    const maxChars   = 28;
+    const padX       = 28;
+
+    const words = safeTitle.split(' ');
+    const lines = [];
+    let cur = '';
+    for (const word of words) {
+        const candidate = cur ? `${cur} ${word}` : word;
+        if (candidate.length <= maxChars) {
+            cur = candidate;
+        } else {
+            if (cur) lines.push(cur);
+            cur = word;
+        }
+    }
+    if (cur) lines.push(cur);
+    const displayLines = lines.slice(0, 4); // max 4 lines
+
+    // Vertically centre text block inside the strip
+    const textBlockH  = displayLines.length * lineHeight;
+    const textStartY  = Math.round((txtH - textBlockH) / 2) + fontSize;
+
+    const tspans = displayLines
+        .map((line, i) => `<tspan x="${padX}" dy="${i === 0 ? 0 : lineHeight}">${line}</tspan>`)
+        .join('');
+
+    const titleSvg = Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${txtW}" height="${txtH}">` +
+        `<text x="${padX}" y="${textStartY}" ` +
+        `font-family="Arial Black, Arial, sans-serif" ` +
+        `font-size="${fontSize}" font-weight="900" fill="#CC0000" letter-spacing="-0.5">` +
+        `${tspans}</text></svg>`
+    );
+
+    // ── 4. Final composition ──
     return sharp(templatePath)
         .resize(width, height)
         .composite([
-            { input: processedImg, left: gridX, top: gridY }
+            { input: processedImg, left: imgX, top: imgY },
+            { input: titleSvg,     left: txtX, top: txtY }
         ])
         .png()
         .toBuffer();
