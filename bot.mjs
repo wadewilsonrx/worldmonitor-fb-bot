@@ -493,9 +493,69 @@ async function postPhotoToFacebook(message, imageUrl) {
     return data.id;
 }
 
+// ─── Quality Filters ─────────────────────────────────────────────────────────
+// Domains / URL patterns that are NOT real news articles
+const LOW_QUALITY_DOMAINS = [
+    'github.com', 'gitlab.com', 'stackoverflow.com', 'reddit.com',
+    'twitter.com', 'x.com', 'youtube.com', 'linkedin.com',
+    'medium.com', 'dev.to', 'hackernews.com', 'news.ycombinator.com',
+    'producthunt.com', 'npmjs.com', 'pypi.org',
+];
+
+// Title patterns that indicate non-news content
+const LOW_QUALITY_TITLE_PATTERNS = [
+    /^[a-z0-9_\-]+\/[a-z0-9_\-]+$/i,          // GitHub repo style "user/repo"
+    /\brepository\b/i, /\bgithub repo\b/i,
+    /\bpull request\b/i, /\bmerge request\b/i,
+    /\bcommit\b.*\bhash\b/i,
+    /^v?\d+\.\d+(\.\d+)?\s+(release|update|patch)/i,  // Version releases like "v1.2.3 release"
+];
+
+// AI summary phrases that indicate the model had no real info to summarize
+const BAD_SUMMARY_PATTERNS = [
+    /no (geopolitical|political|factual|relevant|additional|further|specific|contextual|detailed|available)? ?(context|information|details?|data)/i,
+    /not (enough|sufficient) (context|information)/i,
+    /cannot (provide|generate|summarize|find)/i,
+    /no (news|article|content|story) (found|available|provided)/i,
+    /headline (only|alone|itself|provided)/i,
+    /^(sorry|unfortunately|i (don't|do not|can't|cannot))/i,
+    /lacks? (context|sufficient information)/i,
+    /unable to (provide|summarize|generate)/i,
+    /just a (headline|title)/i,
+];
+
+function isLowQualityArticle(item) {
+    // Check URL domain
+    if (item.link) {
+        try {
+            const domain = new URL(item.link).hostname.replace('www.', '');
+            if (LOW_QUALITY_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) {
+                return true;
+            }
+        } catch { /* malformed URL, allow through */ }
+    }
+    // Check title patterns
+    if (LOW_QUALITY_TITLE_PATTERNS.some(p => p.test(item.title))) return true;
+    // Titles that are too short to be real news (< 15 chars)
+    if (item.title.trim().length < 15) return true;
+    return false;
+}
+
+function isGoodAISummary(summary) {
+    if (!summary || summary.trim().length < 20) return false;
+    return !BAD_SUMMARY_PATTERNS.some(p => p.test(summary.trim()));
+}
+
 async function publishItem(item, breaking) {
     const itemId = makeItemId(item);
     if (postedSet.has(itemId)) return false;
+
+    // ── Quality gate: skip non-news articles entirely ──
+    if (isLowQualityArticle(item)) {
+        log(`  🚫 Skipping low-quality article: "${item.title.slice(0, 60)}"`);
+        markPosted(itemId); // mark so we don't re-check it
+        return false;
+    }
 
     // Mark as posted immediately to prevent retry loops on failure/skip
     markPosted(itemId);
@@ -503,7 +563,10 @@ async function publishItem(item, breaking) {
     const tag = breaking ? '🚨 BREAKING' : '📰 Regular';
     log(`${tag}: ${item.title}`);
 
-    const aiSummary = await fetchAISummary([item.title]);
+    const rawSummary = await fetchAISummary([item.title]);
+    // Only use the AI summary if it's actually informative
+    const aiSummary = isGoodAISummary(rawSummary) ? rawSummary : null;
+    if (rawSummary && !aiSummary) log(`  ℹ️  Discarded unhelpful AI summary`);
     const postText = formatPost(item, aiSummary, breaking);
 
     // If no image, try to scrape the article page for a meta-image
